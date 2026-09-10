@@ -57,9 +57,17 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
   properties: {
     managedEnvironmentId: env.id
     configuration: {
+       secrets: [
+        {
+          name: 'microsoft-provider-authentication-secret'
+        }
+      ]
+      activeRevisionsMode: 'Single'
       ingress: {
         external: true
         targetPort: 80
+        exposedPort: 0
+        transport: 'Auto'
         allowInsecure: false
         traffic: [
           {
@@ -83,7 +91,36 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
       scale: {
         minReplicas: 0
         maxReplicas: 3
+        cooldownPeriod: 300
+        pollingInterval: 30
       }
     }
   }
+}
+
+resource authConfig 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
+name: 'current'
+parent: containerApp
+
+properties: {
+  platform: {
+    enabled: true
+  }
+
+  globalValidation: {
+    unauthenticatedClientAction: 'RedirectToLoginPage'
+  }
+
+  identityProviders: {
+    azureActiveDirectory: {
+      enabled: true
+
+      registration: {
+        clientId: aadClientId
+        clientSecretSettingName: 'microsoft-provider-authentication-secret'
+        openIdIssuer: 'https://login.microsoftonline.com/${aadTenantId}/v2.0'
+      }
+    }
+  }
+}
 }
