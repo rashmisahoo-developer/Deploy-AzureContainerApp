@@ -1,83 +1,178 @@
 name: Deploy Azure Container App
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 permissions:
-  id-token: write
-  contents: read
+id-token: write
+contents: read
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
+deploy:
+runs-on: ubuntu-latest
 
-    env:
-      RESOURCE_GROUP: rg-containerapp-001
-      LOCATION: centralus
+env:
+  RESOURCE_GROUP: rg-containerapp-001
+  LOCATION: centralus
+  CONTAINER_APP_NAME: hello-world
 
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+steps:
+  # ------------------------------------------------------------
+  # Checkout
+  # ------------------------------------------------------------
+  - name: Checkout Code
+    uses: actions/checkout@v4
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # ------------------------------------------------------------
+  # Azure Login using GitHub OIDC
+  # ------------------------------------------------------------
+  - name: Azure Login
+    uses: azure/login@v2
+    with:
+      client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Create Resource Group
-        run: |
-          az group create \
-            --name $RESOURCE_GROUP \
-            --location $LOCATION
+  # ------------------------------------------------------------
+  # Create Resource Group
+  # ------------------------------------------------------------
+  - name: Create Resource Group
+    run: |
+      az group create \
+        --name "$RESOURCE_GROUP" \
+        --location "$LOCATION"
 
-      - name: Validate Bicep Template
-        run: |
-          az deployment group validate \
-            --resource-group $RESOURCE_GROUP \
-            --template-file main.bicep \
-            --parameters \
-              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
-              aadTenantId="${{ secrets.AAD_TENANT_ID }}"
+  # ------------------------------------------------------------
+  # Validate Bicep Template
+  # ------------------------------------------------------------
+  - name: Validate Bicep Template
+    run: |
+      az deployment group validate \
+        --resource-group "$RESOURCE_GROUP" \
+        --template-file main.bicep \
+        --parameters \
+          aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+          aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
+          aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
 
-      - name: What If Deployment
-        run: |
-          az deployment group what-if \
-            --resource-group $RESOURCE_GROUP \
-            --template-file main.bicep \
-            --parameters \
-              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
-              aadTenantId="${{ secrets.AAD_TENANT_ID }}"
+  # ------------------------------------------------------------
+  # What-If Deployment
+  # ------------------------------------------------------------
+  - name: What If Deployment
+    run: |
+      az deployment group what-if \
+        --resource-group "$RESOURCE_GROUP" \
+        --template-file main.bicep \
+        --parameters \
+          aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+          aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
+          aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
 
-      - name: Deploy Bicep Template
-        run: |
-          az deployment group create \
-            --resource-group $RESOURCE_GROUP \
-            --template-file main.bicep \
-            --parameters \
-              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
-              aadTenantId="${{ secrets.AAD_TENANT_ID }}"
+  # ------------------------------------------------------------
+  # Deploy Bicep Template
+  # ------------------------------------------------------------
+  - name: Deploy Bicep Template
+    run: |
+      az deployment group create \
+        --resource-group "$RESOURCE_GROUP" \
+        --template-file main.bicep \
+        --parameters \
+          aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+          aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
+          aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
 
-      - name: Get Container App URL
-        id: appurl
-        run: |
-          FQDN=$(az containerapp show \
-            --name hello-world \
-            --resource-group $RESOURCE_GROUP \
-            --query properties.configuration.ingress.fqdn \
-            -o tsv)
+  # ------------------------------------------------------------
+  # Get Container App FQDN
+  # ------------------------------------------------------------
+  - name: Get Container App URL
+    id: appurl
+    run: |
+      FQDN=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query properties.configuration.ingress.fqdn \
+        --output tsv)
 
-          echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
+      if [ -z "$FQDN" ]; then
+        echo "ERROR: Container App FQDN could not be retrieved."
+        exit 1
+      fi
 
-      - name: Display Authentication Callback URL
-        run: |
-          echo "Add this Redirect URI to hello-world-appregis:"
-          echo "https://${{ steps.appurl.outputs.fqdn }}/.auth/login/aad/callback"
+      CALLBACK_URL="https://${FQDN}/.auth/login/aad/callback"
 
-      - name: Verify Deployment
-        run: |
-          az containerapp show \
-            --name hello-world \
-            --resource-group $RESOURCE_GROUP \
-            --output table
+      echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+      echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
+
+      echo "Container App FQDN: $FQDN"
+      echo "Authentication Callback URL: $CALLBACK_URL"
+
+  # ------------------------------------------------------------
+  # Display Authentication Callback URL
+  # ------------------------------------------------------------
+  - name: Display Authentication Callback URL
+    run: |
+      echo ""
+      echo "=========================================================="
+      echo "Microsoft Entra ID Authentication Configuration"
+      echo "=========================================================="
+      echo ""
+      echo "Existing App Registration:"
+      echo "${{ secrets.AAD_CLIENT_ID }}"
+      echo ""
+      echo "Add this Redirect URI to the App Registration:"
+      echo "${{ steps.appurl.outputs.callback_url }}"
+      echo ""
+      echo "=========================================================="
+
+  # ------------------------------------------------------------
+  # Verify System Assigned Managed Identity
+  # ------------------------------------------------------------
+  - name: Verify System Assigned Managed Identity
+    run: |
+      PRINCIPAL_ID=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query identity.principalId \
+        --output tsv)
+
+      TENANT_ID=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query identity.tenantId \
+        --output tsv)
+
+      if [ -z "$PRINCIPAL_ID" ]; then
+        echo "ERROR: System-assigned managed identity was not created."
+        exit 1
+      fi
+
+      echo "System Assigned Managed Identity:"
+      echo "Principal ID: $PRINCIPAL_ID"
+      echo "Tenant ID: $TENANT_ID"
+
+  # ------------------------------------------------------------
+  # Verify Authentication Configuration
+  # ------------------------------------------------------------
+  - name: Verify Container App Authentication
+    run: |
+      echo "Container App Authentication configuration:"
+
+      az rest \
+        --method get \
+        --url "https://management.azure.com$(az containerapp show \
+          --name "$CONTAINER_APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --query id \
+          --output tsv)/authConfigs/current?api-version=2026-01-01" \
+        --query "properties.globalValidation" \
+        --output json
+
+  # ------------------------------------------------------------
+  # Verify Container App
+  # ------------------------------------------------------------
+  - name: Verify Deployment
+    run: |
+      az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --output table
