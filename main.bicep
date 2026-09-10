@@ -13,12 +13,6 @@ param appInsightsName string = 'appinsights-${appSuffix}'
 @description('The name of the Container App Environment')
 param containerAppEnvironmentName string = 'env${appSuffix}'
 
-@description('Azure AD Application (Client) ID')
-param aadClientId string
-
-@description('Azure AD Tenant ID')
-param aadTenantId string
-
 var containerAppName = 'hello-world'
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -54,14 +48,24 @@ resource env 'Microsoft.App/managedEnvironments@2023-08-01-preview' = {
   }
 }
 
-resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
   name: containerAppName
   location: location
-  identity: {
-      type: 'SystemAssigned'
-  }
   properties: {
     managedEnvironmentId: env.id
+    configuration: {
+      ingress: {
+        external: true
+        targetPort: 80
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+    }
     template: {
       containers: [
         {
@@ -79,47 +83,4 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       }
     }
   }
-}
-
-resource authConfig 'Microsoft.App/containerApps/authConfigs@2024-10-02-preview' = {
-name: 'current'
-parent: containerApp
-
-properties: {
-  platform: {
-    enabled: true
-  }
-
-  globalValidation: {
-    redirectToProvider: 'azureactivedirectory'
-    unauthenticatedClientAction: 'RedirectToLoginPage'
-  }
-
-  identityProviders: {
-    azureActiveDirectory: {
-      enabled: true
-
-      registration: {
-        clientId: aadClientId
-        clientSecretSettingName: 'override-use-mi-fic-assertion-client-id'
-        //openIdIssuer: 'https://login.microsoftonline.com/${aadTenantId}/v2.0'
-      }
-      validation: {
-          defaultAuthorizationPolicy: {
-            allowedApplications: []
-          }
-        }
-    }
-  }
-    login: {
-      // https://learn.microsoft.com/azure/container-apps/token-store
-      tokenStore: {
-        enabled: includeTokenStore
-        azureBlobStorage: includeTokenStore ? {
-          blobContainerUri: blobContainerUri
-          managedIdentityResourceId: appIdentityResourceId
-        } : {}
-      }
-    }
-}
 }
