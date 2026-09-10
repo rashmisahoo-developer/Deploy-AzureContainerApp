@@ -13,6 +13,12 @@ param appInsightsName string = 'appinsights-${appSuffix}'
 @description('The name of the Container App Environment')
 param containerAppEnvironmentName string = 'env${appSuffix}'
 
+@description('Azure AD Application (Client) ID')
+param aadClientId string
+
+@description('Azure AD Tenant ID')
+param aadTenantId string
+
 var containerAppName = 'hello-world'
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -48,7 +54,7 @@ resource env 'Microsoft.App/managedEnvironments@2023-08-01-preview' = {
   }
 }
 
-resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
   identity: {
@@ -57,11 +63,6 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
   properties: {
     managedEnvironmentId: env.id
     configuration: {
-       secrets: [
-        {
-          name: 'microsoft-provider-authentication-secret'
-        }
-      ]
       activeRevisionsMode: 'Single'
       ingress: {
         external: true
@@ -108,6 +109,7 @@ properties: {
   }
 
   globalValidation: {
+    redirectToProvider: 'azureactivedirectory'
     unauthenticatedClientAction: 'RedirectToLoginPage'
   }
 
@@ -117,9 +119,14 @@ properties: {
 
       registration: {
         clientId: aadClientId
-        clientSecretSettingName: 'microsoft-provider-authentication-secret'
+        clientSecretSettingName: 'override-use-mi-fic-assertion-client-id'
         openIdIssuer: 'https://login.microsoftonline.com/${aadTenantId}/v2.0'
       }
+      validation: {
+          defaultAuthorizationPolicy: {
+            allowedApplications: []
+          }
+        }
     }
   }
 }
