@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      RESOURCE_GROUP: "rg-containerapp-001"
+      RESOURCE_GROUP: rg-containerapp-001
       LOCATION: centralus
 
     steps:
@@ -34,22 +34,50 @@ jobs:
 
       - name: Validate Bicep Template
         run: |
-         az deployment group validate \
+          az deployment group validate \
             --resource-group $RESOURCE_GROUP \
-            --template-file main.bicep
+            --template-file main.bicep \
+            --parameters \
+              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+              aadTenantId="${{ secrets.AAD_TENANT_ID }}"
 
-         az deployment group what-if \
-              --resource-group $RESOURCE_GROUP \
-              --template-file main.bicep
+      - name: What If Deployment
+        run: |
+          az deployment group what-if \
+            --resource-group $RESOURCE_GROUP \
+            --template-file main.bicep \
+            --parameters \
+              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+              aadTenantId="${{ secrets.AAD_TENANT_ID }}"
 
       - name: Deploy Bicep Template
         run: |
           az deployment group create \
             --resource-group $RESOURCE_GROUP \
-            --template-file main.bicep
+            --template-file main.bicep \
+            --parameters \
+              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+              aadTenantId="${{ secrets.AAD_TENANT_ID }}"
+
+      - name: Get Container App URL
+        id: appurl
+        run: |
+          FQDN=$(az containerapp show \
+            --name hello-world \
+            --resource-group $RESOURCE_GROUP \
+            --query properties.configuration.ingress.fqdn \
+            -o tsv)
+
+          echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
+
+      - name: Display Authentication Callback URL
+        run: |
+          echo "Add this Redirect URI to hello-world-appregis:"
+          echo "https://${{ steps.appurl.outputs.fqdn }}/.auth/login/aad/callback"
 
       - name: Verify Deployment
         run: |
-          az containerapp list \
+          az containerapp show \
+            --name hello-world \
             --resource-group $RESOURCE_GROUP \
             --output table
