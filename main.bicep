@@ -51,6 +51,9 @@ resource env 'Microsoft.App/managedEnvironments@2023-08-01-preview' = {
 resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
   name: containerAppName
   location: location
+  identity: {
+      type: 'SystemAssigned'
+  }
   properties: {
     managedEnvironmentId: env.id
     configuration: {
