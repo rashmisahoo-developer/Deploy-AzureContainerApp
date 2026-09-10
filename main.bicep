@@ -81,7 +81,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource authConfig 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
+resource authConfig 'Microsoft.App/containerApps/authConfigs@2024-10-02-preview' = {
 name: 'current'
 parent: containerApp
 
@@ -102,7 +102,7 @@ properties: {
       registration: {
         clientId: aadClientId
         clientSecretSettingName: 'override-use-mi-fic-assertion-client-id'
-        openIdIssuer: 'https://login.microsoftonline.com/${aadTenantId}/v2.0'
+        //openIdIssuer: 'https://login.microsoftonline.com/${aadTenantId}/v2.0'
       }
       validation: {
           defaultAuthorizationPolicy: {
@@ -111,5 +111,15 @@ properties: {
         }
     }
   }
+    login: {
+      // https://learn.microsoft.com/azure/container-apps/token-store
+      tokenStore: {
+        enabled: includeTokenStore
+        azureBlobStorage: includeTokenStore ? {
+          blobContainerUri: blobContainerUri
+          managedIdentityResourceId: appIdentityResourceId
+        } : {}
+      }
+    }
 }
 }
