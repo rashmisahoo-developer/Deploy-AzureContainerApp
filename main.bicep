@@ -13,6 +13,9 @@ param appInsightsName string = 'appinsights-${appSuffix}'
 @description('The name of the Container App Environment')
 param containerAppEnvironmentName string = 'env${appSuffix}'
 
+param aadClientId string
+param aadTenantId string
+
 var containerAppName = 'hello-world'
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
