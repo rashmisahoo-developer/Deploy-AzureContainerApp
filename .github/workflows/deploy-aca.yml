@@ -10,417 +10,167 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     env:
       RESOURCE_GROUP: rg-containerapp-001
       LOCATION: centralus
       CONTAINER_APP_NAME: hello-world
-
     steps:
-
-      # ------------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------------
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------------
-      # Azure Login using GitHub OIDC
-      # ------------------------------------------------------------
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      # ------------------------------------------------------------
-      # Verify Azure CLI / Bicep
-      # ------------------------------------------------------------
-      - name: Verify Azure CLI and Bicep
-        run: |
-          echo "Azure CLI:"
-          az version
-
-          echo ""
-          echo "Bicep:"
-          az bicep version
-
-      # ------------------------------------------------------------
-      # Verify Required Configuration
-      # ------------------------------------------------------------
-      - name: Verify Required Configuration
-        env:
-          AAD_CLIENT_ID: ${{ secrets.AAD_CLIENT_ID }}
-          AAD_TENANT_ID: ${{ secrets.AAD_TENANT_ID }}
-          AAD_CLIENT_SECRET: ${{ secrets.AAD_CLIENT_SECRET }}
-          AAD_APPLICATION_UNIQUE_NAME: ${{ secrets.AAD_APPLICATION_UNIQUE_NAME }}
-        run: |
-          set -e
-
-          if [ -z "$AAD_CLIENT_ID" ]; then
-            echo "ERROR: AAD_CLIENT_ID secret is not configured."
-            exit 1
-          fi
-
-          if [ -z "$AAD_TENANT_ID" ]; then
-            echo "ERROR: AAD_TENANT_ID secret is not configured."
-            exit 1
-          fi
-
-          if [ -z "$AAD_CLIENT_SECRET" ]; then
-            echo "ERROR: AAD_CLIENT_SECRET secret is not configured."
-            exit 1
-          fi
-
-          if [ -z "$AAD_APPLICATION_UNIQUE_NAME" ]; then
-            echo "ERROR: AAD_APPLICATION_UNIQUE_NAME secret is not configured."
-            exit 1
-          fi
-
-          echo "Required configuration is present."
-          echo "AAD Client ID: $AAD_CLIENT_ID"
-          echo "AAD Tenant ID: $AAD_TENANT_ID"
-          echo "AAD Application Unique Name: $AAD_APPLICATION_UNIQUE_NAME"
-
-      # ------------------------------------------------------------
-      # Create Resource Group
-      # ------------------------------------------------------------
-      - name: Create Resource Group
-        run: |
-          az group create \
-            --name "$RESOURCE_GROUP" \
-            --location "$LOCATION"
-
-      # ------------------------------------------------------------
-      # Verify Microsoft Graph Access
-      # ------------------------------------------------------------
-      #
-      # The Bicep template updates the existing Entra application
-      # through Microsoft Graph.
-      #
-      # The GitHub OIDC service principal therefore needs sufficient
-      # Microsoft Graph application permissions.
-      #
-      # Recommended permission:
-      #
-      #   Microsoft Graph
-      #   Application permissions
-      #   Application.ReadWrite.All
-      #
-      # with admin consent granted.
-      # ------------------------------------------------------------
-      - name: Verify Microsoft Graph Access
-        env:
-          AAD_CLIENT_ID: ${{ secrets.AAD_CLIENT_ID }}
-        run: |
-          set -e
-
-          echo "Requesting Microsoft Graph access token..."
-
-          TOKEN=$(az account get-access-token \
-            --resource-type ms-graph \
-            --query accessToken \
-            --output tsv)
-
-          if [ -z "$TOKEN" ]; then
-            echo "ERROR: Could not obtain Microsoft Graph access token."
-            exit 1
-          fi
-
-          echo "Microsoft Graph token acquired."
-
-          echo ""
-          echo "Checking access to the existing Entra application..."
-
-          HTTP_STATUS=$(curl \
-            --silent \
-            --output /tmp/graph-response.json \
-            --write-out "%{http_code}" \
-            --request GET \
-            --header "Authorization: Bearer $TOKEN" \
-            "https://graph.microsoft.com/v1.0/applications(appId='${AAD_CLIENT_ID}')")
-
-          echo "Microsoft Graph HTTP status: $HTTP_STATUS"
-
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo ""
-            echo "ERROR: Microsoft Graph access failed."
-            echo ""
-            echo "Response:"
-            cat /tmp/graph-response.json
-            echo ""
-            echo "The GitHub Actions Azure service principal likely"
-            echo "does not have sufficient Microsoft Graph permissions."
-            echo ""
-            echo "Required permission:"
-            echo "  Microsoft Graph"
-            echo "  Application.ReadWrite.All"
-            echo ""
-            echo "Admin consent must also be granted."
-            exit 1
-          fi
-
-          echo ""
-          echo "Microsoft Graph access verified successfully."
-
-      # ------------------------------------------------------------
-      # Validate Bicep Template
-      # ------------------------------------------------------------
-      - name: Validate Bicep Template
-        run: |
-          az deployment group validate \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file main.bicep \
-            --parameters \
-              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
-              aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
-              aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}" \
-              aadApplicationUniqueName="${{ secrets.AAD_APPLICATION_UNIQUE_NAME }}"
-
-      # ------------------------------------------------------------
-      # What-If Deployment
-      # ------------------------------------------------------------
-      - name: What If Deployment
-        run: |
-          az deployment group what-if \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file main.bicep \
-            --parameters \
-              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
-              aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
-              aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}" \
-              aadApplicationUniqueName="${{ secrets.AAD_APPLICATION_UNIQUE_NAME }}"
-
-      # ------------------------------------------------------------
-      # Deploy Bicep Template
-      # ------------------------------------------------------------
-      - name: Deploy Bicep Template
-        id: deploy
-        run: |
-          set -e
-
-          az deployment group create \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file main.bicep \
-            --parameters \
-              aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
-              aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
-              aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}" \
-              aadApplicationUniqueName="${{ secrets.AAD_APPLICATION_UNIQUE_NAME }}" \
-            --query properties.outputs \
-            --output json > deployment-outputs.json
-
-          echo "Deployment completed successfully."
-
-          echo ""
-          echo "Deployment outputs:"
-          cat deployment-outputs.json
-
-      # ------------------------------------------------------------
-      # Get Container App URL
-      # ------------------------------------------------------------
-      - name: Get Container App URL
-        id: appurl
-        run: |
-          set -e
-
-          FQDN=$(az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query properties.configuration.ingress.fqdn \
-            --output tsv)
-
-          if [ -z "$FQDN" ]; then
-            echo "ERROR: Container App FQDN could not be retrieved."
-            exit 1
-          fi
-
-          APP_URL="https://${FQDN}"
-          CALLBACK_URL="${APP_URL}/.auth/login/aad/callback"
-
-          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
-          echo "app_url=$APP_URL" >> "$GITHUB_OUTPUT"
-          echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "Container App FQDN:"
-          echo "$FQDN"
-
-          echo ""
-          echo "Container App URL:"
-          echo "$APP_URL"
-
-          echo ""
-          echo "Authentication Callback URL:"
-          echo "$CALLBACK_URL"
-
-      # ------------------------------------------------------------
-      # Verify Microsoft Entra Redirect URI
-      # ------------------------------------------------------------
-      - name: Verify Microsoft Entra Redirect URI
-        env:
-          AAD_CLIENT_ID: ${{ secrets.AAD_CLIENT_ID }}
-          EXPECTED_CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
-        run: |
-          set -e
-
-          echo "Checking Microsoft Entra redirect URI..."
-
-          TOKEN=$(az account get-access-token \
-            --resource-type ms-graph \
-            --query accessToken \
-            --output tsv)
-
-          if [ -z "$TOKEN" ]; then
-            echo "ERROR: Could not obtain Microsoft Graph access token."
-            exit 1
-          fi
-
-          curl \
-            --silent \
-            --fail \
-            --request GET \
-            --header "Authorization: Bearer $TOKEN" \
-            "https://graph.microsoft.com/v1.0/applications(appId='${AAD_CLIENT_ID}')" \
-            > /tmp/aad-application.json
-
-          echo ""
-          echo "Expected redirect URI:"
-          echo "$EXPECTED_CALLBACK_URL"
-
-          echo ""
-          echo "Configured redirect URIs:"
-
-          jq -r '.web.redirectUris[]?' /tmp/aad-application.json
-
-          echo ""
-
-          if jq -e \
-            --arg uri "$EXPECTED_CALLBACK_URL" \
-            '.web.redirectUris | index($uri) != null' \
-            /tmp/aad-application.json > /dev/null; then
-
-            echo "SUCCESS: Redirect URI is configured in Microsoft Entra ID."
-
-          else
-
-            echo "ERROR: Expected redirect URI was not found."
-            echo ""
-            echo "Expected:"
-            echo "$EXPECTED_CALLBACK_URL"
-            echo ""
-            echo "Configured URIs:"
-            jq -r '.web.redirectUris[]?' /tmp/aad-application.json
-            exit 1
-
-          fi
-
-      # ------------------------------------------------------------
-      # Display Authentication Configuration
-      # ------------------------------------------------------------
-      - name: Display Authentication Configuration
-        run: |
-          echo ""
-          echo "=========================================================="
-          echo "Microsoft Entra ID Authentication Configuration"
-          echo "=========================================================="
-          echo ""
-          echo "App Registration:"
-          echo "${{ secrets.AAD_CLIENT_ID }}"
-          echo ""
-          echo "Container App:"
-          echo "${{ steps.appurl.outputs.app_url }}"
-          echo ""
-          echo "Redirect URI:"
-          echo "${{ steps.appurl.outputs.callback_url }}"
-          echo ""
-          echo "Redirect URI was configured automatically by Bicep."
-          echo ""
-          echo "=========================================================="
-
-      # ------------------------------------------------------------
-      # Verify System Assigned Managed Identity
-      # ------------------------------------------------------------
-      - name: Verify System Assigned Managed Identity
-        run: |
-          set -e
-
-          PRINCIPAL_ID=$(az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query identity.principalId \
-            --output tsv)
-
-          TENANT_ID=$(az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query identity.tenantId \
-            --output tsv)
-
-          if [ -z "$PRINCIPAL_ID" ]; then
-            echo "ERROR: System-assigned managed identity was not created."
-            exit 1
-          fi
-
-          echo "System Assigned Managed Identity:"
-          echo "Principal ID: $PRINCIPAL_ID"
-          echo "Tenant ID: $TENANT_ID"
-
-      # ------------------------------------------------------------
-      # Verify Authentication Configuration
-      # ------------------------------------------------------------
-      - name: Verify Container App Authentication
-        run: |
-          set -e
-
-          APP_ID=$(az containerapp show \
+    # ------------------------------------------------------------
+    # Checkout
+    # ------------------------------------------------------------
+    - name: Checkout Code
+      uses: actions/checkout@v4
+  
+    # ------------------------------------------------------------
+    # Azure Login using GitHub OIDC
+    # ------------------------------------------------------------
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  
+    # ------------------------------------------------------------
+    # Create Resource Group
+    # ------------------------------------------------------------
+    - name: Create Resource Group
+      run: |
+        az group create \
+          --name "$RESOURCE_GROUP" \
+          --location "$LOCATION"
+  
+    # ------------------------------------------------------------
+    # Validate Bicep Template
+    # ------------------------------------------------------------
+    - name: Validate Bicep Template
+      run: |
+        az deployment group validate \
+          --resource-group "$RESOURCE_GROUP" \
+          --template-file main.bicep \
+          --parameters \
+            aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+            aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
+            aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
+  
+    # ------------------------------------------------------------
+    # What-If Deployment
+    # ------------------------------------------------------------
+    - name: What If Deployment
+      run: |
+        az deployment group what-if \
+          --resource-group "$RESOURCE_GROUP" \
+          --template-file main.bicep \
+          --parameters \
+            aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+            aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
+            aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
+  
+    # ------------------------------------------------------------
+    # Deploy Bicep Template
+    # ------------------------------------------------------------
+    - name: Deploy Bicep Template
+      run: |
+        az deployment group create \
+          --resource-group "$RESOURCE_GROUP" \
+          --template-file main.bicep \
+          --parameters \
+            aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
+            aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
+            aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
+  
+    # ------------------------------------------------------------
+    # Get Container App FQDN
+    # ------------------------------------------------------------
+    - name: Get Container App URL
+      id: appurl
+      run: |
+        FQDN=$(az containerapp show \
+          --name "$CONTAINER_APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --query properties.configuration.ingress.fqdn \
+          --output tsv)
+  
+        if [ -z "$FQDN" ]; then
+          echo "ERROR: Container App FQDN could not be retrieved."
+          exit 1
+        fi
+  
+        CALLBACK_URL="https://${FQDN}/.auth/login/aad/callback"
+  
+        echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+        echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
+  
+        echo "Container App FQDN: $FQDN"
+        echo "Authentication Callback URL: $CALLBACK_URL"
+  
+    # ------------------------------------------------------------
+    # Display Authentication Callback URL
+    # ------------------------------------------------------------
+    - name: Display Authentication Callback URL
+      run: |
+        echo ""
+        echo "=========================================================="
+        echo "Microsoft Entra ID Authentication Configuration"
+        echo "=========================================================="
+        echo ""
+        echo "Existing App Registration:"
+        echo "${{ secrets.AAD_CLIENT_ID }}"
+        echo ""
+        echo "Add this Redirect URI to the App Registration:"
+        echo "${{ steps.appurl.outputs.callback_url }}"
+        echo ""
+        echo "=========================================================="
+  
+    # ------------------------------------------------------------
+    # Verify System Assigned Managed Identity
+    # ------------------------------------------------------------
+    - name: Verify System Assigned Managed Identity
+      run: |
+        PRINCIPAL_ID=$(az containerapp show \
+          --name "$CONTAINER_APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --query identity.principalId \
+          --output tsv)
+  
+        TENANT_ID=$(az containerapp show \
+          --name "$CONTAINER_APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --query identity.tenantId \
+          --output tsv)
+  
+        if [ -z "$PRINCIPAL_ID" ]; then
+          echo "ERROR: System-assigned managed identity was not created."
+          exit 1
+        fi
+  
+        echo "System Assigned Managed Identity:"
+        echo "Principal ID: $PRINCIPAL_ID"
+        echo "Tenant ID: $TENANT_ID"
+  
+    # ------------------------------------------------------------
+    # Verify Authentication Configuration
+    # ------------------------------------------------------------
+    - name: Verify Container App Authentication
+      run: |
+        echo "Container App Authentication configuration:"
+  
+        az rest \
+          --method get \
+          --url "https://management.azure.com$(az containerapp show \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --query id \
-            --output tsv)
-
-          echo "Container App Authentication configuration:"
-          echo ""
-
-          az rest \
-            --method get \
-            --url "https://management.azure.com${APP_ID}/authConfigs/current?api-version=2026-01-01" \
-            --query "properties.globalValidation" \
-            --output json
-
-      # ------------------------------------------------------------
-      # Verify Container App
-      # ------------------------------------------------------------
-      - name: Verify Deployment
-        run: |
-          set -e
-
-          az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --output table
-
-      # ------------------------------------------------------------
-      # Deployment Summary
-      # ------------------------------------------------------------
-      - name: Deployment Summary
-        run: |
-          echo ""
-          echo "=========================================================="
-          echo "Deployment Successful"
-          echo "=========================================================="
-          echo ""
-          echo "Container App:"
-          echo "${{ steps.appurl.outputs.app_url }}"
-          echo ""
-          echo "Microsoft Entra Client ID:"
-          echo "${{ secrets.AAD_CLIENT_ID }}"
-          echo ""
-          echo "Microsoft Entra Redirect URI:"
-          echo "${{ steps.appurl.outputs.callback_url }}"
-          echo ""
-          echo "Authentication:"
-          echo "Microsoft Entra ID / Container Apps Easy Auth"
-          echo ""
-          echo "=========================================================="
+            --output tsv)/authConfigs/current?api-version=2026-01-01" \
+          --query "properties.globalValidation" \
+          --output json
+  
+    # ------------------------------------------------------------
+    # Verify Container App
+    # ------------------------------------------------------------
+    - name: Verify Deployment
+      run: |
+        az containerapp show \
+          --name "$CONTAINER_APP_NAME" \
+          --resource-group "$RESOURCE_GROUP" \
+          --output table
