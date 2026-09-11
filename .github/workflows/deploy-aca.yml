@@ -78,9 +78,9 @@ jobs:
             aadClientId="${{ secrets.AAD_CLIENT_ID }}" \
             aadTenantId="${{ secrets.AAD_TENANT_ID }}" \
             aadClientSecret="${{ secrets.AAD_CLIENT_SECRET }}"
-  
+    
     # ------------------------------------------------------------
-    # Get Container App FQDN
+    # Get Container App URL
     # ------------------------------------------------------------
     - name: Get Container App URL
       id: appurl
@@ -90,87 +90,112 @@ jobs:
           --resource-group "$RESOURCE_GROUP" \
           --query properties.configuration.ingress.fqdn \
           --output tsv)
-  
+    
         if [ -z "$FQDN" ]; then
           echo "ERROR: Container App FQDN could not be retrieved."
           exit 1
         fi
-  
-        CALLBACK_URL="https://${FQDN}/.auth/login/aad/callback"
-  
+    
+        APP_URL="https://${FQDN}"
+        CALLBACK_URL="${APP_URL}/.auth/login/aad/callback"
+    
         echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+        echo "app_url=$APP_URL" >> "$GITHUB_OUTPUT"
         echo "callback_url=$CALLBACK_URL" >> "$GITHUB_OUTPUT"
-  
-        echo "Container App FQDN: $FQDN"
-        echo "Authentication Callback URL: $CALLBACK_URL"
-  
+    
+        echo "Container App URL: $APP_URL"
+        echo "Callback URL: $CALLBACK_URL"
+    
     # ------------------------------------------------------------
-    # Display Authentication Callback URL
+    # Get Existing Entra App Registration
     # ------------------------------------------------------------
-    - name: Display Authentication Callback URL
+    - name: Get Entra App Registration
+      id: entra
       run: |
-        echo ""
-        echo "=========================================================="
-        echo "Microsoft Entra ID Authentication Configuration"
-        echo "=========================================================="
-        echo ""
-        echo "Existing App Registration:"
-        echo "${{ secrets.AAD_CLIENT_ID }}"
-        echo ""
-        echo "Add this Redirect URI to the App Registration:"
-        echo "${{ steps.appurl.outputs.callback_url }}"
-        echo ""
-        echo "=========================================================="
-  
-    # ------------------------------------------------------------
-    # Verify System Assigned Managed Identity
-    # ------------------------------------------------------------
-    - name: Verify System Assigned Managed Identity
-      run: |
-        PRINCIPAL_ID=$(az containerapp show \
-          --name "$CONTAINER_APP_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --query identity.principalId \
+        APP_OBJECT_ID=$(az ad app show \
+          --id "${{ secrets.AAD_CLIENT_ID }}" \
+          --query id \
           --output tsv)
-  
-        TENANT_ID=$(az containerapp show \
-          --name "$CONTAINER_APP_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --query identity.tenantId \
-          --output tsv)
-  
-        if [ -z "$PRINCIPAL_ID" ]; then
-          echo "ERROR: System-assigned managed identity was not created."
+    
+        if [ -z "$APP_OBJECT_ID" ]; then
+          echo "ERROR: Entra App Registration not found."
           exit 1
         fi
-  
-        echo "System Assigned Managed Identity:"
-        echo "Principal ID: $PRINCIPAL_ID"
-        echo "Tenant ID: $TENANT_ID"
-  
+    
+        echo "object_id=$APP_OBJECT_ID" >> "$GITHUB_OUTPUT"
+    
+        echo "Entra App Registration found."
+        echo "Object ID: $APP_OBJECT_ID"
+    
     # ------------------------------------------------------------
-    # Verify Authentication Configuration
+    # Update Entra Redirect URI
     # ------------------------------------------------------------
-    - name: Verify Container App Authentication
+    - name: Update Entra Redirect URI
+      env:
+        CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
+        APP_OBJECT_ID: ${{ steps.entra.outputs.object_id }}
       run: |
-        echo "Container App Authentication configuration:"
-  
+        echo "Checking existing redirect URIs..."
+    
+        CURRENT_REDIRECTS=$(az rest \
+          --method GET \
+          --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+          --query "web.redirectUris" \
+          --output json)
+    
+        echo "Current redirect URIs:"
+        echo "$CURRENT_REDIRECTS"
+    
+        UPDATED_REDIRECTS=$(echo "$CURRENT_REDIRECTS" | \
+          jq --arg uri "$CALLBACK_URL" \
+          '. + [$uri] | unique')
+    
+        echo "Updated redirect URIs:"
+        echo "$UPDATED_REDIRECTS"
+    
+        BODY=$(jq -n \
+          --argjson redirects "$UPDATED_REDIRECTS" \
+          '{
+            web: {
+              redirectUris: $redirects
+            }
+          }')
+    
         az rest \
-          --method get \
-          --url "https://management.azure.com$(az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query id \
-            --output tsv)/authConfigs/current?api-version=2026-01-01" \
-          --query "properties.globalValidation" \
-          --output json
-  
+          --method PATCH \
+          --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+          --headers "Content-Type=application/json" \
+          --body "$BODY"
+    
+        echo "Redirect URI updated successfully."
+    
     # ------------------------------------------------------------
-    # Verify Container App
+    # Verify Redirect URI
     # ------------------------------------------------------------
-    - name: Verify Deployment
+    - name: Verify Entra Redirect URI
+      env:
+        CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
+        APP_OBJECT_ID: ${{ steps.entra.outputs.object_id }}
       run: |
-        az containerapp show \
-          --name "$CONTAINER_APP_NAME" \
-          --resource-group "$RESOURCE_GROUP" \
-          --output table
+        echo "Verifying redirect URI..."
+    
+        REDIRECT_URIS=$(az rest \
+          --method GET \
+          --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+          --query "web.redirectUris" \
+          --output json)
+    
+        echo "$REDIRECT_URIS"
+    
+        if echo "$REDIRECT_URIS" | jq -e \
+          --arg uri "$CALLBACK_URL" \
+          'index($uri) != null' > /dev/null; then
+    
+          echo "SUCCESS: Redirect URI exists."
+    
+        else
+    
+          echo "ERROR: Redirect URI was not found."
+          exit 1
+    
+        fi
