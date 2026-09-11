@@ -41,10 +41,25 @@ jobs:
           userType:user.type
         }' \
         --output json  
-        az ad sp show \
-          --id "$AZURE_CLIENT_ID" \
-          --query "{displayName:displayName, appId:appId, objectId:id}" \
-          --output table
+    - name: Get GitHub Actions Service Principal
+      id: githubsp
+      run: |
+        SP_OBJECT_ID=$(az ad sp list \
+          --all \
+          --filter "appId eq '${{ secrets.AZURE_CLIENT_ID }}'" \
+          --query "[0].id" \
+          --output tsv)
+    
+        if [ -z "$SP_OBJECT_ID" ]; then
+          echo "ERROR: GitHub Actions service principal not found."
+          exit 1
+        fi
+    
+        echo "sp_object_id=$SP_OBJECT_ID" >> "$GITHUB_OUTPUT"
+    
+        echo "GitHub Actions Service Principal Object ID:"
+        echo "$SP_OBJECT_ID"
+
 
 
   
