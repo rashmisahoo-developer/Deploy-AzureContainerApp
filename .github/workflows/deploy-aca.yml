@@ -41,6 +41,11 @@ jobs:
           userType:user.type
         }' \
         --output json  
+        az ad sp show \
+          --id "$AZURE_CLIENT_ID" \
+          --query "{displayName:displayName, appId:appId, objectId:id}" \
+          --output table
+
 
   
     # ------------------------------------------------------------
