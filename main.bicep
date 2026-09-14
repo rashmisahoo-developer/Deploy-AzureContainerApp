@@ -23,7 +23,56 @@ param aadTenantId string
 @secure()
 param aadClientSecret string
 
+@description('Virtual network name')
+param vnetName string = 'vnet-${appSuffix}'
+
+@description('CIDR address space for the virtual network')
+param vnetAddressPrefix string = '10.0.0.0/16'
+
+@description('CIDR address prefix for the Container Apps infrastructure subnet')
+param containerAppsSubnetPrefix string = '10.0.0.0/23'
+
 var containerAppName = 'hello-world'
+var containerAppsSubnetName = 'containerapps-subnet'
+
+// -----------------------------------------------------------------------------
+// Virtual Network
+// -----------------------------------------------------------------------------
+
+resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+  name: vnetName
+  location: location
+
+  properties: {
+    addressSpace: {
+      addressPrefixes: [
+        vnetAddressPrefix
+      ]
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Container Apps Infrastructure Subnet
+// -----------------------------------------------------------------------------
+
+resource containerAppsSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
+  parent: vnet
+  name: containerAppsSubnetName
+
+  properties: {
+    addressPrefix: containerAppsSubnetPrefix
+
+    delegations: [
+      {
+        name: 'containerapps-delegation'
+        properties: {
+          serviceName: 'Microsoft.App/environments'
+        }
+      }
+    ]
+  }
+}
 
 // -----------------------------------------------------------------------------
 // Log Analytics
@@ -61,6 +110,10 @@ name: containerAppEnvironmentName
 location: location
 
 properties: {
+// VNet integration
+    vnetConfiguration: {
+      infrastructureSubnetId: containerAppsSubnet.id
+    }
 appLogsConfiguration: {
 destination: 'log-analytics'
 
