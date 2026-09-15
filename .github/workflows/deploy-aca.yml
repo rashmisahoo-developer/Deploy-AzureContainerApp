@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RESOURCE_GROUP: rg-azurecontainerapp-001
-      LOCATION: westus
+      LOCATION: centralindia
       CONTAINER_APP_NAME: hello-world
     steps:
     # ------------------------------------------------------------
