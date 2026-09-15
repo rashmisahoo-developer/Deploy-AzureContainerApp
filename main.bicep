@@ -156,7 +156,7 @@ configuration: {
   ]
 
   ingress: {
-    external: false
+    external: true
     targetPort: 80
     exposedPort: 0
     transport: 'Auto'
