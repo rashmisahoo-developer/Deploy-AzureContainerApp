@@ -106,96 +106,96 @@ jobs:
         echo "Container App URL: $APP_URL"
         echo "Callback URL: $CALLBACK_URL"
     
-    # ------------------------------------------------------------
-    # Get Existing Entra App Registration
-    # ------------------------------------------------------------
-    - name: Get Entra App Registration
-      id: entra
-      run: |
-        APP_OBJECT_ID=$(az ad app show \
-          --id "${{ secrets.AAD_CLIENT_ID }}" \
-          --query id \
-          --output tsv)
+    # # ------------------------------------------------------------
+    # # Get Existing Entra App Registration
+    # # ------------------------------------------------------------
+    # - name: Get Entra App Registration
+    #   id: entra
+    #   run: |
+    #     APP_OBJECT_ID=$(az ad app show \
+    #       --id "${{ secrets.AAD_CLIENT_ID }}" \
+    #       --query id \
+    #       --output tsv)
     
-        if [ -z "$APP_OBJECT_ID" ]; then
-          echo "ERROR: Entra App Registration not found."
-          exit 1
-        fi
+    #     if [ -z "$APP_OBJECT_ID" ]; then
+    #       echo "ERROR: Entra App Registration not found."
+    #       exit 1
+    #     fi
     
-        echo "object_id=$APP_OBJECT_ID" >> "$GITHUB_OUTPUT"
+    #     echo "object_id=$APP_OBJECT_ID" >> "$GITHUB_OUTPUT"
     
-        echo "Entra App Registration found."
-        echo "Object ID: $APP_OBJECT_ID"
+    #     echo "Entra App Registration found."
+    #     echo "Object ID: $APP_OBJECT_ID"
     
-    # ------------------------------------------------------------
-    # Update Entra Redirect URI
-    # ------------------------------------------------------------
-    - name: Update Entra Redirect URI
-      env:
-        CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
-        APP_OBJECT_ID: ${{ steps.entra.outputs.object_id }}
-      run: |
-        echo "Checking existing redirect URIs..."
+    # # ------------------------------------------------------------
+    # # Update Entra Redirect URI
+    # # ------------------------------------------------------------
+    # - name: Update Entra Redirect URI
+    #   env:
+    #     CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
+    #     APP_OBJECT_ID: ${{ steps.entra.outputs.object_id }}
+    #   run: |
+    #     echo "Checking existing redirect URIs..."
     
-        CURRENT_REDIRECTS=$(az rest \
-          --method GET \
-          --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
-          --query "web.redirectUris" \
-          --output json)
+    #     CURRENT_REDIRECTS=$(az rest \
+    #       --method GET \
+    #       --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+    #       --query "web.redirectUris" \
+    #       --output json)
     
-        echo "Current redirect URIs:"
-        echo "$CURRENT_REDIRECTS"
+    #     echo "Current redirect URIs:"
+    #     echo "$CURRENT_REDIRECTS"
     
-        UPDATED_REDIRECTS=$(echo "$CURRENT_REDIRECTS" | \
-          jq --arg uri "$CALLBACK_URL" \
-          '. + [$uri] | unique')
+    #     UPDATED_REDIRECTS=$(echo "$CURRENT_REDIRECTS" | \
+    #       jq --arg uri "$CALLBACK_URL" \
+    #       '. + [$uri] | unique')
     
-        echo "Updated redirect URIs:"
-        echo "$UPDATED_REDIRECTS"
+    #     echo "Updated redirect URIs:"
+    #     echo "$UPDATED_REDIRECTS"
     
-        BODY=$(jq -n \
-          --argjson redirects "$UPDATED_REDIRECTS" \
-          '{
-            web: {
-              redirectUris: $redirects
-            }
-          }')
+    #     BODY=$(jq -n \
+    #       --argjson redirects "$UPDATED_REDIRECTS" \
+    #       '{
+    #         web: {
+    #           redirectUris: $redirects
+    #         }
+    #       }')
     
-        az rest \
-          --method PATCH \
-          --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
-          --headers "Content-Type=application/json" \
-          --body "$BODY"
+    #     az rest \
+    #       --method PATCH \
+    #       --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+    #       --headers "Content-Type=application/json" \
+    #       --body "$BODY"
     
-        echo "Redirect URI updated successfully."
+    #     echo "Redirect URI updated successfully."
     
-    # ------------------------------------------------------------
-    # Verify Redirect URI
-    # ------------------------------------------------------------
-    - name: Verify Entra Redirect URI
-      env:
-        CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
-        APP_OBJECT_ID: ${{ steps.entra.outputs.object_id }}
-      run: |
-        echo "Verifying redirect URI..."
+    # # ------------------------------------------------------------
+    # # Verify Redirect URI
+    # # ------------------------------------------------------------
+    # - name: Verify Entra Redirect URI
+    #   env:
+    #     CALLBACK_URL: ${{ steps.appurl.outputs.callback_url }}
+    #     APP_OBJECT_ID: ${{ steps.entra.outputs.object_id }}
+    #   run: |
+    #     echo "Verifying redirect URI..."
     
-        REDIRECT_URIS=$(az rest \
-          --method GET \
-          --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
-          --query "web.redirectUris" \
-          --output json)
+    #     REDIRECT_URIS=$(az rest \
+    #       --method GET \
+    #       --url "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+    #       --query "web.redirectUris" \
+    #       --output json)
     
-        echo "$REDIRECT_URIS"
+    #     echo "$REDIRECT_URIS"
     
-        if echo "$REDIRECT_URIS" | jq -e \
-          --arg uri "$CALLBACK_URL" \
-          'index($uri) != null' > /dev/null; then
+    #     if echo "$REDIRECT_URIS" | jq -e \
+    #       --arg uri "$CALLBACK_URL" \
+    #       'index($uri) != null' > /dev/null; then
     
-          echo "SUCCESS: Redirect URI exists."
+    #       echo "SUCCESS: Redirect URI exists."
     
-        else
+    #     else
     
-          echo "ERROR: Redirect URI was not found."
-          exit 1
+    #       echo "ERROR: Redirect URI was not found."
+    #       exit 1
     
-        fi
+    #     fi
