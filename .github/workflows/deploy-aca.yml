@@ -31,38 +31,6 @@ jobs:
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-    - name: Check Azure Identity
-      run: |
-        echo "Logged in Azure identity:"
-        az account show --query '{
-          subscriptionId:id,
-          tenantId:tenantId,
-          user:user.name,
-          userType:user.type
-        }' \
-        --output json  
-    - name: Get GitHub Actions Service Principal
-      id: githubsp
-      run: |
-        SP_OBJECT_ID=$(az ad sp list \
-          --all \
-          --filter "appId eq '${{ secrets.AZURE_CLIENT_ID }}'" \
-          --query "[0].id" \
-          --output tsv)
-    
-        if [ -z "$SP_OBJECT_ID" ]; then
-          echo "ERROR: GitHub Actions service principal not found."
-          exit 1
-        fi
-    
-        echo "sp_object_id=$SP_OBJECT_ID" >> "$GITHUB_OUTPUT"
-    
-        echo "GitHub Actions Service Principal Object ID:"
-        echo "$SP_OBJECT_ID"
-
-
-
-  
     # ------------------------------------------------------------
     # Create Resource Group
     # ------------------------------------------------------------
