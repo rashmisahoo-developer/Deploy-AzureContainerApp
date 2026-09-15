@@ -154,6 +154,21 @@ configuration: {
       value: aadClientSecret
     }
   ]
+
+  ingress: {
+    external: false
+    targetPort: 80
+    exposedPort: 0
+    transport: 'Auto'
+    allowInsecure: false
+
+    traffic: [
+      {
+        weight: 100
+        latestRevision: true
+      }
+    ]
+  }
 }
 
 template: {
