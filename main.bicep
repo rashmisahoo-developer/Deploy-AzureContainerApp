@@ -113,6 +113,7 @@ properties: {
 // VNet integration
     vnetConfiguration: {
       infrastructureSubnetId: containerAppsSubnet.id
+      internal: true
     }
 appLogsConfiguration: {
 destination: 'log-analytics'
@@ -261,3 +262,6 @@ encryptionSettings: {}
 
 }
 }
+
+output environmentDefaultDomain string = env.properties.defaultDomain
+output environmentPrivateIp string = env.properties.staticIp
