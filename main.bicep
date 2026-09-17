@@ -113,7 +113,7 @@ properties: {
 // VNet integration
     vnetConfiguration: {
       infrastructureSubnetId: containerAppsSubnet.id
-      internal: true
+   //   internal: true
     }
 appLogsConfiguration: {
 destination: 'log-analytics'
