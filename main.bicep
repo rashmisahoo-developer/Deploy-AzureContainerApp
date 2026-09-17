@@ -186,7 +186,7 @@ template: {
   ]
 
   scale: {
-    minReplicas: 0
+    minReplicas: 1
     maxReplicas: 3
     cooldownPeriod: 300
     pollingInterval: 30
