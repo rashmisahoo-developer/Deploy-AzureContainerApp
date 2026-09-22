@@ -11,7 +11,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      RESOURCE_GROUP: rg-containerapp-001
+      RESOURCE_GROUP: rg-azurecontainerapp-001
       LOCATION: centralindia
       CONTAINER_APP_NAME: hello-world
     steps:
